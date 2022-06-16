@@ -1,0 +1,176 @@
+MM<-function(Y,X,kappa,lambda,Null=FALSE){
+	n   <-length(Y)
+	MY  <-var(Y)
+	MX  <-var(X)
+	MXY <-cov(Y,X)
+	MY1 <-var(Y)*(n-1)/n
+	MX1 <-var(X)*(n-1)/n
+	MXY1<-cov(Y,X)*(n-1)/n
+	kappa1 <-mean(kappa)
+	lambda1<-mean(lambda)
+	beta <-MXY/(MX-kappa1)
+	alpha <- mean(Y) - beta*mean(X)
+	mu    <-  mean(X)
+	sigmax<- MX - kappa1
+	sigma <- MY -beta^2*sigmax - lambda1
+
+	beta1 <-MXY1/(MX1-kappa1)
+	alpha1<- mean(Y) - beta1*mean(X)
+	mu1   <- mean(X)
+	sigmax1<-MX1 - kappa1
+	sigma1 <- MY1 -beta1^2*sigmax1 - lambda1
+
+
+	#Asymptotic covariance
+	teta1 <- sigmax + kappa1
+	teta2 <- beta^2*sigmax + sigma + lambda1
+	delta1 <- mean(kappa^2) - kappa1^2
+	delta2 <- mean(lambda^2) - lambda1^2
+	d <-  beta^2*sigmax*kappa1 + mean(kappa*lambda) + sigma*kappa1 + sigmax*lambda1 + 2*beta^2*sigmax^2+sigma*sigmax
+	Varalpha<-(sigmax^2*(beta^2*kappa1+sigma+lambda1) + 2*beta^2*mu^2*(mean(kappa^2)-sigmax^2) + mu^2*d)/sigmax^2
+	VarBeta <-(2*beta^2*( mean(kappa^2)-sigmax^2)+d)/sigmax^2
+	Cova_b  <-(2*beta^2*mu*(sigmax^2- mean(kappa^2))-d*mu)/sigmax^2
+	A  <-matrix(c(Varalpha,Cova_b,Cova_b,VarBeta),2,2)/n
+
+	p<-1-pchisq(c(alpha-0,beta-1)%*%solve(A,tol=1e-100000)%*%c(alpha-0,beta-1),2)
+
+	#Asymptotic covariance Cheng riu (2006)
+
+	ACR <-1/n*matrix(c(-n,-sum(X),-sum(X),sum(-X^2+kappa)),2,2)
+	as  <-sum((Y-alpha1-beta1*X)*( (Y-alpha1 - beta1*X)*X + beta1*kappa ))
+	BCR <-1/n*matrix(c(sum((Y-alpha1 - beta1*X)^2), as, as, sum(((Y-alpha1-beta1*X)*X + beta1*kappa)^2)),2,2)
+	AA  <-1/n*solve(ACR)%*%BCR%*%solve(ACR)
+	pp  <-1-pchisq(c(alpha1-0,beta1-1)%*%solve(AA,tol=1e-100000)%*%c(alpha1-0,beta1-1),2)
+	
+	if(!Null){
+		S  <- list()
+		S$Coef1 <-matrix(c(alpha,beta,mu,sigmax,sigma),1)
+		S$Coef2 <-matrix(c(alpha1,beta1,mu1,sigmax1,sigma1),1)
+		S$MM1 <-list()
+		S$MM1$Var <-A
+		S$MM1$p.value <-p
+		S$MM1$W <-c(alpha-0,beta-1)%*%solve(A,tol=1e-100000)%*%c(alpha-0,beta-1)
+		S$MM2         <-list()
+		S$MM2$Var     <-AA
+		S$MM2$p.value <-pp
+		S$MM2$W <-c(alpha1-0,beta1-1)%*%solve(AA,tol=1e-100000)%*%c(alpha1-0,beta1-1)
+	}
+
+	if(Null){
+		beta2 <- mean(Y)/mean(X)
+		sigma2 <- var(Y) - beta2^2*sigmax - lambda1
+		S <- list()
+		S$Coef1 <-matrix(c(beta,mu,sigmax,sigma),1)
+		S$Coef2 <-matrix(c(beta2,mu,sigmax,sigma2),1)
+		S$Var1  <-VarBeta/n
+		S$Var2  <-1/n*(beta2^2*kappa1+sigma2+lambda1)/mean(X)^2
+	}
+	return(S)
+}
+
+#ML Function
+
+ML<-function(Y,X,kappa,lambda,Inter=200){
+	n<-length(Y)
+	MY<-var(Y)
+	MX<-var(X)
+	MXY<-cov(Y,X)
+	kappa1<-mean(kappa)
+	lambda1<-mean(lambda)
+	beta<-MXY/(MX-kappa1)
+	alpha = mean(Y) - beta*mean(X)
+	mu = mean(X)
+	sigmax=MX - kappa1
+	sigma = MY -beta^2*sigmax - lambda1
+	mu0=c(mean(X),alpha+beta*mean(X))
+	Sigma0=matrix(c(sigmax,beta*sigmax,beta*sigmax,sigma+beta^2*sigmax),2,2)
+	e=1
+	j=0
+
+	while(max(abs(e))>0.00001 & j<Inter ){
+		j  <-j+1
+		S1 <-Sigma0[1,1]+kappa
+		S2 <-Sigma0[2,2]+lambda
+		S12<-Sigma0[1,2]
+		deter<-(S1*S2 - S12^2)
+		S  <-matrix(c(sum(S2/deter),sum(-S12/deter),sum(-S12/deter), sum(S1/deter)),2,2)
+		SS1<-matrix(c(sum(S2/deter*(X-mu[1])-S12/deter*(Y-mu0[2])),sum(-S12/deter*(X-mu[1])+S1/deter*(Y-mu0[2]))),2,1)
+		m  <-c(mu0)+Sigma0%*%rbind(S2/deter*(X-mu0[1])-S12/deter*(Y-mu0[2]), -S12/deter*(X-mu0[1])+S1/deter*(Y-mu0[2]))
+		mu <-1/n*c(sum(m[1,]),sum(m[2,]))
+		L  <-n*Sigma0 - Sigma0%*%S%*%Sigma0
+		Sigma <-1/n*((m-mu)%*%t(m-mu) + L)
+		e <- c(mu-mu0,Sigma-Sigma0)
+		mu0 <- mu
+		Sigma0 <- Sigma
+	}
+
+#Fisher Information.
+
+	s11<-Sigma[1,1]
+	s12<-Sigma[1,2]
+	s22<-Sigma[2,2]
+	rhoi<-s12/sqrt((s11+kappa)*(s22+lambda))
+	rho<-s12/sqrt(s11*s22)
+	KK<-matrix(0,5,5)
+	JJ<-II<-matrix(rep(c(diag(5)),n),n,byrow=T)
+	JJ[,23]<-rho*sqrt(s22)/sqrt(4*(s11+kappa)*(s22+lambda))*(1/sqrt(s11) - sqrt(s11)/(s11+kappa))
+	JJ[,24]<-rho*sqrt(s11)/sqrt(4*(s11+kappa)*(s22+lambda))*(1/sqrt(s22) - sqrt(s22)/(s22+lambda))
+	JJ[,25]<-sqrt(s11*s22)/sqrt((s11+kappa)*(s22+lambda))
+	TT<-matrix(rep(c(Sigma),n),n,byrow=T)+cbind(kappa,0,0,lambda)
+	sol<-function(f){ c(solve(matrix(TT[f,],2),tol=1e-10000))}
+	TT<-t(sapply(1:n, sol))
+	II[,1]<-TT[,1]
+	II[,2]<-TT[,2]
+	II[,6]<-TT[,3]
+	II[,7]<-TT[,4]
+	II[,13]<-(2-rhoi^2)/(4*(1-rhoi^2)*(s11+kappa)^2)
+	II[,14]<--rhoi^2/(4*(1-rhoi^2)*(s11+kappa)*(s22+lambda))
+	II[,15]<--rhoi/(2*(1-rhoi^2)*(s11+kappa))
+	II[,18]<--rhoi^2/(4*(1-rhoi^2)*(s11+kappa)*(s22+lambda)) 
+	II[,19]<-(2-rhoi^2)/(4*(1-rhoi^2)*(s22+lambda)^2)
+	II[,20]<--rhoi/(2*(1-rhoi^2)*(s22+lambda))
+	II[,23]<--rhoi/(2*(1-rhoi^2)*(s11+kappa))
+	II[,24]<--rhoi/(2*(1-rhoi^2)*(s22+lambda))
+	II[,25]<-(1+rhoi^2)/(1-rhoi^2)^2
+	Mul<-function(f) c(matrix(JJ[f,],5)%*%matrix(II[f,],5)%*%t(matrix(JJ[f,],5)))
+	KK<- matrix(colSums(t(sapply(1:n, Mul))),5)
+	G<-rbind(
+	c(-rho*sqrt(s22/s11),1,mu[1]*rho*sqrt(s22)/(2*s11^(3/2)), -rho*mu[1]/(2*sqrt(s11*s22)), -mu[1]*sqrt(s22/s11)),
+	c(0,0,-rho*sqrt(s22)/(2*s11^(3/2)), rho/(2*sqrt(s11*s22)),sqrt(s22/s11)))
+
+	beta<-s12/s11
+	alpha<-mu[2]-beta*mu[1]
+	sigmax<-s11
+	mu<-mu[1]
+	sigma<-s22 - beta^2*sigmax
+	A1<-G%*%solve(KK,tol=e-10000)%*%t(G)
+
+	S<-list()
+	S$Coef<-matrix(c(alpha,beta,mu,sigmax,sigma),1)
+	S$Var<-A1
+	S$p.value<-1-pchisq(c(alpha-0,beta-1)%*%solve(A1,tol=1e-100000)%*%c(alpha-0,beta-1),2)
+	S$W<-c(alpha-0,beta-1)%*%solve(A1,tol=1e-100000)%*%c(alpha-0,beta-1)
+	S$inter<-j
+	return(S)
+	}
+
+
+logLik<-function(Y,X,kappa,lambda,Par){
+	alpha<-Par[1]
+	beta<-Par[2]
+	mu<-Par[3]
+	sigmax<-Par[4]
+	sigma<-Par[5]
+	n<-length(Y)
+	Sigma<-matrix(c(sigmax,beta*sigmax,beta*sigmax,sigma+beta^2*sigmax),2,2)
+	TT<-matrix(rep(c(Sigma),n),n,byrow=T)+cbind(kappa,0,0,lambda)
+	sol1<-function(f){ 
+		t(matrix(c(X[f]-mu,Y[f]-alpha-beta*mu)))%*%solve(matrix(TT[f,],2),tol=1e-10000)%*%matrix(c(X[f]-mu,Y[f]-alpha-beta*mu))
+	}
+	det1<-function(f){ det(matrix(TT[f,],2))}
+	TT1<-sapply(1:n, sol1)
+	TT2<-sapply(1:n, det1)
+	return(-n/2*sum(log(TT2)) - 1/2*sum(TT1))
+}
+
+
